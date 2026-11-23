@@ -1,20 +1,477 @@
 <Window xmlns="https://github.com/avaloniaui"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:vm="using:StudyHelper.ViewModels"
-        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
-        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
-        mc:Ignorable="d" d:DesignWidth="800" d:DesignHeight="450"
+        xmlns:models="using:StudyHelper.Models"
+        xmlns:views="using:StudyHelper.Views"
         x:Class="StudyHelper.Views.MainWindow"
+        x:Name="RootWindow"
         x:DataType="vm:MainWindowViewModel"
-        Icon="/Assets/avalonia-logo.ico"
-        Title="StudyHelper">
+        Title="StudyHelper"
+        Width="1100" Height="720"
+        MinWidth="800" MinHeight="500">
 
-    <Design.DataContext>
-        <!-- This only sets the DataContext for the previewer in an IDE,
-             to set the actual DataContext for runtime, set the DataContext property in code (look at App.axaml.cs) -->
-        <vm:MainWindowViewModel/>
-    </Design.DataContext>
+    <Window.Resources>
 
-    <TextBlock Text="{Binding Greeting}" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+        <!-- One chat (used by the Summary, Explanation and Quiz tabs; each tab gets its own ChatSession) -->
+        <DataTemplate x:Key="ChatTemplate" x:DataType="models:ChatSession">
+            <Grid RowDefinitions="Auto, *, Auto" RowSpacing="10" Margin="0,10,0,0">
 
+                <!-- Header: loading bar + clear button -->
+                <Grid Grid.Row="0" ColumnDefinitions="*, Auto" ColumnSpacing="10">
+                    <ProgressBar Grid.Column="0"
+                                 IsIndeterminate="True"
+                                 IsVisible="{Binding IsBusy}"
+                                 Height="3"
+                                 MinWidth="0"
+                                 VerticalAlignment="Center"
+                                 Foreground="{Binding AccentColor}" />
+                    <Button Grid.Column="1"
+                            Content="Clear chat"
+                            Command="{Binding ClearCommand}"
+                            Padding="10,4"
+                            FontSize="12"
+                            CornerRadius="6"
+                            Background="Transparent"
+                            Foreground="#64748B" />
+                </Grid>
+
+                <!-- Messages -->
+                <ScrollViewer Grid.Row="1"
+                              views:AutoScroll.IsEnabled="True"
+                              VerticalScrollBarVisibility="Auto">
+                    <StackPanel Spacing="12" Margin="0,0,12,0">
+
+                        <TextBlock Text="{Binding EmptyHint}"
+                                   IsVisible="{Binding IsEmpty}"
+                                   Foreground="#94A3B8"
+                                   FontSize="14"
+                                   HorizontalAlignment="Center"
+                                   Margin="0,40,0,0" />
+
+                        <ItemsControl ItemsSource="{Binding Messages}">
+                            <ItemsControl.ItemsPanel>
+                                <ItemsPanelTemplate>
+                                    <StackPanel Spacing="12" />
+                                </ItemsPanelTemplate>
+                            </ItemsControl.ItemsPanel>
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate x:DataType="models:ChatMessage">
+                                    <Panel>
+
+                                        <!-- YOUR message (right, blue bubble) -->
+                                        <StackPanel IsVisible="{Binding IsUser}"
+                                                    HorizontalAlignment="Right"
+                                                    MaxWidth="560"
+                                                    Spacing="2">
+                                            <Border Background="#2563EB"
+                                                    CornerRadius="14,14,4,14"
+                                                    Padding="14,9">
+                                                <SelectableTextBlock Text="{Binding Text}"
+                                                                     TextWrapping="Wrap"
+                                                                     Foreground="White"
+                                                                     FontSize="14" />
+                                            </Border>
+                                            <TextBlock Text="{Binding TimeLabel}"
+                                                       HorizontalAlignment="Right"
+                                                       FontSize="10"
+                                                       Foreground="#94A3B8" />
+                                        </StackPanel>
+
+                                        <!-- GEMINI answer (left, card) -->
+                                        <Border IsVisible="{Binding IsAssistant}"
+                                                HorizontalAlignment="Stretch"
+                                                Background="#F8FAFC"
+                                                BorderBrush="#E2E8F0"
+                                                BorderThickness="1"
+                                                CornerRadius="4,14,14,14"
+                                                Padding="16,12">
+                                            <StackPanel Spacing="10">
+
+                                                <StackPanel Orientation="Horizontal" Spacing="10"
+                                                            IsVisible="{Binding IsLoading}">
+                                                    <ProgressBar IsIndeterminate="True" Width="60" Height="3"
+                                                                 MinWidth="0" VerticalAlignment="Center" />
+                                                    <TextBlock Text="{Binding Text}" Foreground="#64748B" FontStyle="Italic" />
+                                                </StackPanel>
+
+                                                <SelectableTextBlock Text="{Binding Text}"
+                                                                     IsVisible="{Binding !IsLoading}"
+                                                                     TextWrapping="Wrap"
+                                                                     Foreground="#334155"
+                                                                     FontSize="14"
+                                                                     LineHeight="23"
+                                                                     Classes.error="{Binding IsError}">
+                                                    <SelectableTextBlock.Styles>
+                                                        <Style Selector="SelectableTextBlock.error">
+                                                            <Setter Property="Foreground" Value="#B91C1C" />
+                                                        </Style>
+                                                    </SelectableTextBlock.Styles>
+                                                </SelectableTextBlock>
+
+                                                <!-- Interactive quiz (only in quiz answers) -->
+                                                <ItemsControl ItemsSource="{Binding QuizQuestions}"
+                                                              IsVisible="{Binding HasQuiz}">
+                                                    <ItemsControl.ItemTemplate>
+                                                        <DataTemplate x:DataType="models:QuizQuestion">
+                                                            <Border Background="White"
+                                                                    BorderBrush="#E2E8F0"
+                                                                    BorderThickness="1"
+                                                                    CornerRadius="8"
+                                                                    Padding="14"
+                                                                    Margin="0,0,0,10">
+                                                                <StackPanel Spacing="8">
+                                                                    <TextBlock FontWeight="SemiBold"
+                                                                               FontSize="14"
+                                                                               Foreground="#1E293B"
+                                                                               TextWrapping="Wrap">
+                                                                        <Run Text="{Binding Number}" />
+                                                                        <Run Text=". " />
+                                                                        <Run Text="{Binding Question}" />
+                                                                    </TextBlock>
+
+                                                                    <ItemsControl ItemsSource="{Binding Options}">
+                                                                        <ItemsControl.ItemTemplate>
+                                                                            <DataTemplate x:DataType="models:QuizOption">
+                                                                                <RadioButton GroupName="{Binding GroupName}"
+                                                                                             IsChecked="{Binding IsSelected, Mode=TwoWay}"
+                                                                                             FontSize="13"
+                                                                                             Foreground="#334155"
+                                                                                             Margin="0,2">
+                                                                                    <TextBlock Text="{Binding Text}" TextWrapping="Wrap" />
+                                                                                </RadioButton>
+                                                                            </DataTemplate>
+                                                                        </ItemsControl.ItemTemplate>
+                                                                    </ItemsControl>
+
+                                                                    <TextBlock Text="{Binding FeedbackText}"
+                                                                               IsVisible="{Binding HasFeedback}"
+                                                                               Foreground="{Binding FeedbackColor}"
+                                                                               FontSize="12"
+                                                                               FontWeight="Medium"
+                                                                               TextWrapping="Wrap"
+                                                                               Margin="0,4,0,0" />
+                                                                </StackPanel>
+                                                            </Border>
+                                                        </DataTemplate>
+                                                    </ItemsControl.ItemTemplate>
+                                                </ItemsControl>
+
+                                                <StackPanel Orientation="Horizontal" Spacing="12"
+                                                            IsVisible="{Binding HasQuiz}">
+                                                    <Button Command="{Binding CheckAnswersCommand}"
+                                                            Content="Check Answers"
+                                                            Padding="16,9"
+                                                            CornerRadius="6"
+                                                            Background="#7C3AED"
+                                                            Foreground="White"
+                                                            FontWeight="SemiBold" />
+                                                    <TextBlock Text="{Binding QuizScore}"
+                                                               VerticalAlignment="Center"
+                                                               FontSize="14"
+                                                               FontWeight="Bold"
+                                                               Foreground="#1E293B" />
+                                                </StackPanel>
+
+                                                <TextBlock Text="{Binding TimeLabel}"
+                                                           IsVisible="{Binding !IsLoading}"
+                                                           FontSize="10"
+                                                           Foreground="#94A3B8" />
+                                            </StackPanel>
+                                        </Border>
+                                    </Panel>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                    </StackPanel>
+                </ScrollViewer>
+
+                <!-- Input bar (belongs to THIS chat only) -->
+                <Border Grid.Row="2"
+                        Background="#F8FAFC"
+                        BorderBrush="#E2E8F0"
+                        BorderThickness="1"
+                        CornerRadius="8"
+                        Padding="8">
+                    <Grid ColumnDefinitions="*, Auto" ColumnSpacing="8">
+                        <TextBox Grid.Column="0"
+                                 Text="{Binding Input, Mode=TwoWay}"
+                                 PlaceholderText="{Binding Placeholder}"
+                                 BorderThickness="0"
+                                 Background="Transparent"
+                                 VerticalContentAlignment="Center"
+                                 FontSize="13">
+                            <TextBox.KeyBindings>
+                                <KeyBinding Gesture="Enter" Command="{Binding SendCommand}" />
+                            </TextBox.KeyBindings>
+                        </TextBox>
+
+                        <Button Grid.Column="1"
+                                Command="{Binding SendCommand}"
+                                Content="Send"
+                                Padding="16,7"
+                                CornerRadius="6"
+                                Background="{Binding AccentColor}"
+                                Foreground="White"
+                                FontSize="13"
+                                FontWeight="SemiBold" />
+                    </Grid>
+                </Border>
+            </Grid>
+        </DataTemplate>
+    </Window.Resources>
+
+    <Border Background="#DCEEFF" Padding="20">
+        <Grid ColumnDefinitions="260, 16, *">
+
+            <!-- LEFT SIDEBAR -->
+            <Border Grid.Column="0" Background="White" CornerRadius="10" Padding="16">
+                <Grid RowDefinitions="Auto, Auto, *, Auto, Auto" RowSpacing="14">
+
+                    <TextBlock Grid.Row="0"
+                               Text="Documents"
+                               FontSize="17"
+                               FontWeight="Bold"
+                               Foreground="#1E293B" />
+
+                    <!-- Upload button + popup -->
+                    <Panel Grid.Row="1">
+                        <Button x:Name="UploadButton"
+                                Command="{Binding UploadFileCommand}"
+                                CommandParameter="{Binding #RootWindow}"
+                                Content="+ Upload Files"
+                                HorizontalAlignment="Stretch"
+                                HorizontalContentAlignment="Center"
+                                Padding="12,10"
+                                CornerRadius="6"
+                                Background="#EFF6FF"
+                                Foreground="#1D4ED8"
+                                FontWeight="SemiBold" />
+
+                        <Popup PlacementTarget="{Binding #UploadButton}"
+                               Placement="Right"
+                               HorizontalOffset="10"
+                               IsOpen="{Binding IsStatusPopupOpen, Mode=TwoWay}"
+                               IsLightDismissEnabled="True">
+                            <Border Background="#FFFBEB"
+                                    BorderBrush="#FCD34D"
+                                    BorderThickness="1"
+                                    CornerRadius="8"
+                                    Padding="12,8"
+                                    MaxWidth="280"
+                                    BoxShadow="0 4 12 0 #20000000">
+                                <TextBlock Text="{Binding StatusMessage}"
+                                           FontSize="12"
+                                           FontWeight="Medium"
+                                           Foreground="#92400E"
+                                           TextWrapping="Wrap" />
+                            </Border>
+                        </Popup>
+                    </Panel>
+
+                    <!-- Selected files -->
+                    <Border Grid.Row="2"
+                            Background="#F8FAFC"
+                            BorderBrush="#E2E8F0"
+                            BorderThickness="1"
+                            CornerRadius="8"
+                            Padding="12">
+                        <Grid RowDefinitions="Auto, *" RowSpacing="8">
+                            <TextBlock Grid.Row="0"
+                                       Text="Selected Files (PDF, DOCX, TXT, MD)"
+                                       FontSize="11"
+                                       FontWeight="SemiBold"
+                                       Foreground="#64748B" />
+
+                            <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto">
+                                <StackPanel Spacing="6">
+                                    <TextBlock Text="No files selected"
+                                               IsVisible="{Binding HasNoFiles}"
+                                               FontSize="13"
+                                               Foreground="#94A3B8" />
+
+                                    <ItemsControl ItemsSource="{Binding SelectedFiles}">
+                                        <ItemsControl.ItemTemplate>
+                                            <DataTemplate x:DataType="models:StudyDocument">
+                                                <Border Background="White"
+                                                        BorderBrush="#E2E8F0"
+                                                        BorderThickness="1"
+                                                        CornerRadius="5"
+                                                        Padding="8,5"
+                                                        Margin="0,0,0,4">
+                                                    <Grid ColumnDefinitions="*, Auto" ColumnSpacing="6">
+                                                        <TextBlock Grid.Column="0"
+                                                                   Text="{Binding FileName}"
+                                                                   FontSize="12"
+                                                                   FontWeight="Medium"
+                                                                   Foreground="#1E293B"
+                                                                   VerticalAlignment="Center"
+                                                                   TextTrimming="CharacterEllipsis" />
+
+                                                        <Button Grid.Column="1"
+                                                                Content="×"
+                                                                Command="{Binding #RootWindow.((vm:MainWindowViewModel)DataContext).RemoveFileCommand}"
+                                                                CommandParameter="{Binding}"
+                                                                Background="Transparent"
+                                                                Foreground="#94A3B8"
+                                                                Padding="4,0"
+                                                                FontSize="14"
+                                                                FontWeight="Bold"
+                                                                Cursor="Hand" />
+                                                    </Grid>
+                                                </Border>
+                                            </DataTemplate>
+                                        </ItemsControl.ItemTemplate>
+                                    </ItemsControl>
+                                </StackPanel>
+                            </ScrollViewer>
+                        </Grid>
+                    </Border>
+
+                    <!-- Action buttons -->
+                    <StackPanel Grid.Row="3" Spacing="10">
+                        <Button Command="{Binding SummarizeCommand}"
+                                Content="Summarize"
+                                HorizontalAlignment="Stretch"
+                                HorizontalContentAlignment="Center"
+                                Padding="14,10"
+                                CornerRadius="6"
+                                Background="#2563EB"
+                                Foreground="White"
+                                FontWeight="SemiBold" />
+
+                        <Button Command="{Binding ExplainCommand}"
+                                Content="Explain"
+                                HorizontalAlignment="Stretch"
+                                HorizontalContentAlignment="Center"
+                                Padding="14,10"
+                                CornerRadius="6"
+                                Background="#0D9488"
+                                Foreground="White"
+                                FontWeight="SemiBold" />
+
+                        <Button Command="{Binding MakeQuizCommand}"
+                                Content="Make Quiz"
+                                HorizontalAlignment="Stretch"
+                                HorizontalContentAlignment="Center"
+                                Padding="14,10"
+                                CornerRadius="6"
+                                Background="#7C3AED"
+                                Foreground="White"
+                                FontWeight="SemiBold" />
+                    </StackPanel>
+
+                    <!-- API key settings -->
+                    <Expander Grid.Row="4"
+                              Header="Gemini API Key"
+                              HorizontalAlignment="Stretch"
+                              IsExpanded="{Binding !HasApiKey, Mode=OneTime}">
+                        <StackPanel Spacing="8">
+                            <TextBox Text="{Binding ApiKeyInput, Mode=TwoWay}"
+                                     PasswordChar="•"
+                                     PlaceholderText="Paste your key here"
+                                     FontSize="12" />
+                            <Grid ColumnDefinitions="*, Auto" ColumnSpacing="8">
+                                <TextBlock Grid.Column="0"
+                                           Text="{Binding ApiKeyStatus}"
+                                           FontSize="11"
+                                           Foreground="#64748B"
+                                           TextWrapping="Wrap"
+                                           VerticalAlignment="Center" />
+                                <Button Grid.Column="1"
+                                        Content="Save"
+                                        Command="{Binding SaveApiKeyCommand}"
+                                        Padding="12,5"
+                                        FontSize="12"
+                                        CornerRadius="6" />
+                            </Grid>
+                        </StackPanel>
+                    </Expander>
+                </Grid>
+            </Border>
+
+            <!-- RIGHT PANE: three independent chats + history -->
+            <Border Grid.Column="2" Background="White" CornerRadius="10" Padding="20,12,20,20">
+                <TabControl SelectedIndex="{Binding SelectedTabIndex, Mode=TwoWay}">
+                    <TabItem Header="Summary">
+                        <ContentControl Content="{Binding SummaryChat}"
+                                        ContentTemplate="{StaticResource ChatTemplate}" />
+                    </TabItem>
+
+                    <TabItem Header="Explanation">
+                        <ContentControl Content="{Binding ExplanationChat}"
+                                        ContentTemplate="{StaticResource ChatTemplate}" />
+                    </TabItem>
+
+                    <TabItem Header="Quiz">
+                        <ContentControl Content="{Binding QuizChat}"
+                                        ContentTemplate="{StaticResource ChatTemplate}" />
+                    </TabItem>
+
+                    <!-- HISTORY: all your questions from all chats -->
+                    <TabItem Header="History">
+                        <Grid RowDefinitions="Auto, *" RowSpacing="10" Margin="0,12,0,0">
+                            <TextBlock Grid.Row="0"
+                                       Text="Your questions (newest first) – click one to open its chat"
+                                       FontSize="12"
+                                       Foreground="#64748B" />
+
+                            <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto">
+                                <StackPanel Margin="0,0,12,0">
+                                    <TextBlock Text="No questions yet."
+                                               IsVisible="{Binding HasNoHistory}"
+                                               Foreground="#94A3B8"
+                                               FontSize="14"
+                                               HorizontalAlignment="Center"
+                                               Margin="0,40,0,0" />
+
+                                    <ItemsControl ItemsSource="{Binding History}">
+                                        <ItemsControl.ItemTemplate>
+                                            <DataTemplate x:DataType="models:HistoryEntry">
+                                                <Button Command="{Binding #RootWindow.((vm:MainWindowViewModel)DataContext).OpenHistoryEntryCommand}"
+                                                        CommandParameter="{Binding}"
+                                                        HorizontalAlignment="Stretch"
+                                                        HorizontalContentAlignment="Stretch"
+                                                        Background="#F8FAFC"
+                                                        BorderBrush="#E2E8F0"
+                                                        BorderThickness="1"
+                                                        CornerRadius="8"
+                                                        Padding="12,10"
+                                                        Margin="0,0,0,8"
+                                                        Cursor="Hand">
+                                                    <Grid ColumnDefinitions="Auto, *, Auto" ColumnSpacing="12">
+                                                        <Border Grid.Column="0"
+                                                                Background="{Binding AccentColor}"
+                                                                CornerRadius="10"
+                                                                Padding="8,2"
+                                                                VerticalAlignment="Top">
+                                                            <TextBlock Text="{Binding TabName}"
+                                                                       Foreground="White"
+                                                                       FontSize="11"
+                                                                       FontWeight="SemiBold" />
+                                                        </Border>
+                                                        <TextBlock Grid.Column="1"
+                                                                   Text="{Binding Text}"
+                                                                   Foreground="#1E293B"
+                                                                   FontSize="13"
+                                                                   TextWrapping="Wrap"
+                                                                   MaxLines="3"
+                                                                   TextTrimming="CharacterEllipsis" />
+                                                        <TextBlock Grid.Column="2"
+                                                                   Text="{Binding TimeLabel}"
+                                                                   Foreground="#94A3B8"
+                                                                   FontSize="11"
+                                                                   VerticalAlignment="Top" />
+                                                    </Grid>
+                                                </Button>
+                                            </DataTemplate>
+                                        </ItemsControl.ItemTemplate>
+                                    </ItemsControl>
+                                </StackPanel>
+                            </ScrollViewer>
+                        </Grid>
+                    </TabItem>
+                </TabControl>
+            </Border>
+        </Grid>
+    </Border>
 </Window>
